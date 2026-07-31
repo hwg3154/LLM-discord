@@ -138,13 +138,16 @@ async function fetchFromAPI(): Promise<AnthropicModelEntry[] | null> {
     return null;
   }
 
+  // Support custom Anthropic-compatible endpoints
+  const baseUrl = Deno.env.get("ANTHROPIC_BASE_URL") || "https://api.anthropic.com";
+
   try {
     const allModels: AnthropicModelEntry[] = [];
     let hasMore = true;
     let afterId: string | undefined;
 
     while (hasMore) {
-      const url = new URL("https://api.anthropic.com/v1/models");
+      const url = new URL(`${baseUrl}/v1/models`);
       url.searchParams.set("limit", "100");
       if (afterId) {
         url.searchParams.set("after_id", afterId);

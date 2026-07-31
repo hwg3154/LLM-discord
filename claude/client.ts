@@ -206,6 +206,12 @@ export async function sendToClaudeCode(
         // Enable experimental Agent Teams if configured
         ...(modelOptions?.enableAgentTeams && { CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: '1' }),
       };
+
+      // Pass through ANTHROPIC_BASE_URL if set (allows custom Anthropic-compatible endpoints)
+      const anthropicBaseUrl = Deno.env.get("ANTHROPIC_BASE_URL");
+      if (anthropicBaseUrl) {
+        envVars.ANTHROPIC_BASE_URL = anthropicBaseUrl;
+      }
       
       // Apply extra env vars (proxy settings, etc.)
       if (modelOptions?.extraEnv) {

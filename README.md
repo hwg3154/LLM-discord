@@ -82,6 +82,7 @@ APPLICATION_ID=your_application_id_here
 
 # Optional
 ANTHROPIC_API_KEY=sk-ant-...          # Enables dynamic model discovery & refresh
+ANTHROPIC_BASE_URL=https://...         # Custom Anthropic-compatible endpoint (e.g., LiteLLM, OpenRouter, local proxy)
 USER_ID=your_discord_user_id          # @mention when Claude finishes a task
 CATEGORY_NAME=claude-code             # Discord category for bot channels
 WORK_DIR=/path/to/project             # Working directory (default: current dir)
@@ -105,6 +106,7 @@ MONITOR_BOT_IDS=987654321,111111111      # Comma-separated bot/webhook/user IDs 
 | `DISCORD_TOKEN` | **Yes** | Bot token from the [Discord Developer Portal](https://discord.com/developers/applications) |
 | `APPLICATION_ID` | **Yes** | Application ID from the Developer Portal |
 | `ANTHROPIC_API_KEY` | No | Enables dynamic model discovery; refreshes hourly |
+| `ANTHROPIC_BASE_URL` | No | Custom Anthropic-compatible API endpoint (e.g., LiteLLM, OpenRouter, local proxy). Default: `https://api.anthropic.com` |
 | `USER_ID` | No | Your Discord user ID — bot @mentions you when tasks finish |
 | `CATEGORY_NAME` | No | Discord category name for channels (default: `claude-code`) |
 | `WORK_DIR` | No | Working directory for Claude operations (default: current dir) |

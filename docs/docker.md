@@ -10,6 +10,7 @@ Make sure your `.env` file is in the project root with **all required variables*
 - `DISCORD_TOKEN` — your Discord bot token
 - `APPLICATION_ID` — your Discord application ID  
 - `ANTHROPIC_API_KEY` — **required in Docker** (the Claude CLI inside the container uses this to authenticate)
+- `ANTHROPIC_BASE_URL` — optional; custom Anthropic-compatible endpoint (e.g., LiteLLM, OpenRouter, local proxy)
 
 See [Installation](installation.md) for full `.env` setup.
 
@@ -97,6 +98,17 @@ The Dockerfile builds on `denoland/deno:latest` and adds:
 Unlike native installs where you can run `claude /login` interactively, Docker containers authenticate via the `ANTHROPIC_API_KEY` environment variable.
 
 **`ANTHROPIC_API_KEY` is required when running in Docker.** The Claude CLI inside the container reads this key to authenticate with Anthropic. Without it, any `/claude` or `/ask` command will fail with a `ProcessTransport is not ready for writing` error.
+
+### Custom Anthropic Endpoint
+
+To use a custom Anthropic-compatible endpoint (e.g., LiteLLM, OpenRouter, a local proxy), set `ANTHROPIC_BASE_URL` in your `.env` file:
+
+```env
+ANTHROPIC_API_KEY=sk-ant-...
+ANTHROPIC_BASE_URL=https://your-proxy.example.com/v1
+```
+
+The bot will use this endpoint for both the Claude CLI subprocess and dynamic model discovery.
 
 Make sure your `.env` file includes a valid key:
 

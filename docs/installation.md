@@ -120,6 +120,7 @@ APPLICATION_ID=your_application_id_here
 
 # Optional
 ANTHROPIC_API_KEY=your_anthropic_api_key_here  # Only needed if not using `claude` CLI for auth
+ANTHROPIC_BASE_URL=https://your-proxy.example.com/v1  # Custom Anthropic-compatible endpoint
 USER_ID=your_discord_user_id                   # Get mentioned when Claude finishes
 CATEGORY_NAME=claude-code                      # Discord category for channels
 WORK_DIR=/path/to/project                      # Working directory (default: current)
