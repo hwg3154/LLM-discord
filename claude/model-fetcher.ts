@@ -129,8 +129,13 @@ function buildAliases(models: Record<string, ModelInfo>, apiModels: AnthropicMod
 }
 
 /**
- * Fetch models from the Anthropic API.
+ * Fetch models from the Anthropic API or a custom ANTHROPIC_BASE_URL.
  * Returns null if no API key is set or the request fails.
+ *
+ * Strategy:
+ * 1. If ANTHROPIC_BASE_URL is set, try that endpoint first (for custom proxies/endpoints)
+ * 2. Fall back to the official Anthropic API (https://api.anthropic.com)
+ * 3. Both endpoints must have ANTHROPIC_API_KEY set
  */
 async function fetchFromAPI(): Promise<AnthropicModelEntry[] | null> {
   const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
@@ -138,53 +143,65 @@ async function fetchFromAPI(): Promise<AnthropicModelEntry[] | null> {
     return null;
   }
 
-  // Support custom Anthropic-compatible endpoints
-  const baseUrl = Deno.env.get("ANTHROPIC_BASE_URL") || "https://api.anthropic.com";
+  // Try custom base URL first (if configured)
+  const customBaseUrl = Deno.env.get("ANTHROPIC_BASE_URL");
+  const urlsToTry = customBaseUrl
+    ? [customBaseUrl.replace(/\/+$/, ''), "https://api.anthropic.com"]
+    : ["https://api.anthropic.com"];
 
-  try {
-    const allModels: AnthropicModelEntry[] = [];
-    let hasMore = true;
-    let afterId: string | undefined;
+  for (const baseUrl of urlsToTry) {
+    try {
+      const allModels: AnthropicModelEntry[] = [];
+      let hasMore = true;
+      let afterId: string | undefined;
 
-    while (hasMore) {
-      const url = new URL(`${baseUrl}/v1/models`);
-      url.searchParams.set("limit", "100");
-      if (afterId) {
-        url.searchParams.set("after_id", afterId);
+      while (hasMore) {
+        const url = new URL(`${baseUrl}/v1/models`);
+        url.searchParams.set("limit", "100");
+        if (afterId) {
+          url.searchParams.set("after_id", afterId);
+        }
+
+        const response = await fetch(url.toString(), {
+          method: "GET",
+          headers: {
+            "x-api-key": apiKey,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+          },
+        });
+
+        if (!response.ok) {
+          console.error(`Models API error (${baseUrl}): ${response.status} ${response.statusText}`);
+          const body = await response.text().catch(() => "");
+          console.error(`Response body: ${body}`);
+          // Try next URL if available
+          break;
+        }
+
+        const data: AnthropicModelsResponse = await response.json();
+        allModels.push(...data.data);
+
+        hasMore = data.has_more;
+        if (hasMore && data.last_id) {
+          afterId = data.last_id;
+        } else {
+          hasMore = false;
+        }
       }
 
-      const response = await fetch(url.toString(), {
-        method: "GET",
-        headers: {
-          "x-api-key": apiKey,
-          "anthropic-version": "2023-06-01",
-          "content-type": "application/json",
-        },
-      });
-
-      if (!response.ok) {
-        console.error(`Anthropic Models API error: ${response.status} ${response.statusText}`);
-        const body = await response.text().catch(() => "");
-        console.error(`Response body: ${body}`);
-        return null;
+      if (allModels.length > 0) {
+        console.log(`Model fetcher: Loaded ${allModels.length} models from ${baseUrl}`);
+        return allModels;
       }
-
-      const data: AnthropicModelsResponse = await response.json();
-      allModels.push(...data.data);
-
-      hasMore = data.has_more;
-      if (hasMore && data.last_id) {
-        afterId = data.last_id;
-      } else {
-        hasMore = false;
-      }
+    } catch (error) {
+      console.error(`Failed to fetch models from ${baseUrl}:`, error instanceof Error ? error.message : String(error));
+      // Try next URL if available
+      continue;
     }
-
-    return allModels;
-  } catch (error) {
-    console.error("Failed to fetch models from Anthropic API:", error instanceof Error ? error.message : String(error));
-    return null;
   }
+
+  return null;
 }
 
 /**

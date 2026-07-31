@@ -208,7 +208,7 @@ export function createEnhancedClaudeHandlers(deps: EnhancedClaudeHandlerDeps) {
       // Group models by tier
       const tiers = { flagship: '🏆 Flagship', balanced: '⚡ Balanced', fast: '🚀 Fast', legacy: '📦 Legacy' };
       const grouped: Record<string, string[]> = { flagship: [], balanced: [], fast: [], legacy: [] };
-      
+
       for (const [key, model] of Object.entries(CLAUDE_MODELS)) {
         const recommended = model.recommended ? ' ⭐' : '';
         const alias = model.aliasFor ? ` → \`${model.aliasFor}\`` : '';
@@ -216,14 +216,19 @@ export function createEnhancedClaudeHandlers(deps: EnhancedClaudeHandlerDeps) {
         const entry = `**${model.name}${recommended}${deprecated}**\n${model.description}${alias}\nContext: ${model.contextWindow.toLocaleString()} tokens\nID: \`${key}\``;
         grouped[model.tier].push(entry);
       }
-      
+
       const fields = Object.entries(tiers)
         .filter(([tier]) => grouped[tier].length > 0)
-        .map(([tier, label]) => ({
-          name: label,
-          value: grouped[tier].join('\n\n'),
-          inline: false
-        }));
+        .map(([tier, label]) => {
+          // Discord embed field values have a 1024 char limit
+          const fullValue = grouped[tier].join('\n\n');
+          const value = fullValue.length > 1020 ? fullValue.substring(0, 1020) + '...' : fullValue;
+          return {
+            name: label,
+            value,
+            inline: false
+          };
+        });
 
       await ctx.reply({
         embeds: [{

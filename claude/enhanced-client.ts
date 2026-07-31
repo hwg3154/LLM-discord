@@ -451,10 +451,16 @@ export function resolveModelId(modelInput: string): string {
 }
 
 // Check if a model string is valid (known or custom)
-// Always returns true for custom model strings — let the CLI validate them
+// When using a custom ANTHROPIC_BASE_URL, accept any model string
+// Otherwise, validate against known models and Claude patterns
 export function isValidModel(modelInput: string): boolean {
   // Known models are always valid
   if (modelInput in CLAUDE_MODELS) return true;
+
+  // If using a custom endpoint, accept any model string
+  const customBaseUrl = Deno.env.get("ANTHROPIC_BASE_URL");
+  if (customBaseUrl) return true;
+
   // Accept any string that looks like a Claude model ID
   if (modelInput.startsWith('claude-')) return true;
   // Accept known alias patterns
