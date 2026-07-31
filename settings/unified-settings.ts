@@ -1,5 +1,4 @@
 import { SlashCommandBuilder } from "npm:discord.js@14.14.1";
-import { CLAUDE_MODELS } from "../claude/enhanced-client.ts";
 
 // Unified settings interface combining all bot settings
 // NOTE: Temperature and maxTokens are NOT supported by Claude Code CLI
@@ -497,10 +496,10 @@ export const SETTINGS_VALUES: Record<string, { name: string; value: string }[]> 
     name: `${key} — ${level.description}`,
     value: key,
   })),
-  'set-model': Object.entries(CLAUDE_MODELS).map(([key, model]) => ({
-    name: `${key} — ${model.name}`,
-    value: key,
-  })),
+  // Resolved live in the autocomplete handler (discord/bot.ts) instead of here:
+  // this object is built at import time, which is before the model catalog is
+  // fetched, so a list built here would always be the hardcoded defaults.
+  'set-model': [],
   'set-timestamp': [
     { name: 'relative — e.g. "2 minutes ago"', value: 'relative' },
     { name: 'absolute — e.g. "2025-01-15 14:30"', value: 'absolute' },

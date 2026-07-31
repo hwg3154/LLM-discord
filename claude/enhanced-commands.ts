@@ -10,15 +10,15 @@ export const enhancedClaudeCommands = [
         .setDescription('Prompt for Claude Code')
         .setRequired(true))
     .addStringOption(option =>
+      // No static .addChoices() here: Discord caps choices at 25, and the
+      // catalog is fetched asynchronously at startup (a module-level choice
+      // list would also snapshot the defaults before the fetch lands).
+      // Free text is accepted — isValidModel() allows any id on a custom
+      // endpoint, and /claude-models lists what's available.
       option.setName('model')
-        .setDescription('Claude model to use')
+        .setDescription('Model id to use (see /claude-models)')
         .setRequired(false)
-        .addChoices(
-          ...Object.entries(CLAUDE_MODELS).map(([value, model]) => ({
-            name: model.name,
-            value: value
-          }))
-        ))
+        .setAutocomplete(true))
     .addStringOption(option =>
       option.setName('template')
         .setDescription('Use a predefined template')

@@ -11,19 +11,73 @@
 
 import type { ModelInfo } from "./enhanced-client.ts";
 
-// Anthropic API response types
+// Normalized model entry used internally.
 interface AnthropicModelEntry {
   id: string;
   display_name: string;
   created_at: string;
   type: string;
+  owned_by?: string;
+}
+
+/**
+ * A raw entry from a /v1/models response. Anthropic and OpenAI-compatible
+ * gateways (Open WebUI, LiteLLM, vLLM, Ollama proxies) describe the same
+ * thing with different field names, so both shapes are accepted.
+ */
+interface RawModelEntry {
+  id: string;
+  // Anthropic shape
+  display_name?: string;
+  created_at?: string;
+  type?: string;
+  // OpenAI / Open WebUI shape
+  name?: string;
+  created?: number;
+  object?: string;
+  owned_by?: string;
 }
 
 interface AnthropicModelsResponse {
-  data: AnthropicModelEntry[];
-  has_more: boolean;
+  data: RawModelEntry[];
+  has_more?: boolean;
   first_id?: string;
   last_id?: string;
+}
+
+/** True when the base URL is the official Anthropic API. */
+function isOfficialAnthropic(baseUrl: string): boolean {
+  try {
+    return new URL(baseUrl).hostname === "api.anthropic.com";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Coerce either response shape into a single internal representation.
+ * OpenAI-style endpoints use name/created/object where Anthropic uses
+ * display_name/created_at/type.
+ */
+function normalizeEntry(raw: RawModelEntry): AnthropicModelEntry {
+  let createdAt = raw.created_at ?? "";
+  if (!createdAt && typeof raw.created === "number" && raw.created > 0) {
+    createdAt = new Date(raw.created * 1000).toISOString();
+  }
+
+  return {
+    id: raw.id,
+    display_name: raw.display_name || raw.name || raw.id,
+    created_at: createdAt,
+    type: raw.type || raw.object || "model",
+    owned_by: raw.owned_by,
+  };
+}
+
+/** Parse a timestamp for sorting; unknown/invalid dates sort last. */
+function timestamp(value: string): number {
+  const parsed = new Date(value).getTime();
+  return Number.isNaN(parsed) ? 0 : parsed;
 }
 
 // Cache state
@@ -78,18 +132,25 @@ function inferContextWindow(_id: string): number {
 }
 
 /**
- * Convert an Anthropic API model entry into our ModelInfo format.
+ * Convert a model entry into our ModelInfo format.
+ *
+ * `sourceLabel` names where the entry came from. For non-Claude models served
+ * by a custom gateway the Claude-specific heuristics below don't apply, so the
+ * conservative defaults (no thinking, not deprecated) are used instead.
  */
-function toModelInfo(entry: AnthropicModelEntry): ModelInfo {
-  const tier = classifyTier(entry.id);
+function toModelInfo(entry: AnthropicModelEntry, sourceLabel: string): ModelInfo {
+  const label = entry.display_name || entry.id;
+  const isClaude = entry.id.startsWith("claude-");
+  const owner = entry.owned_by ? `${entry.owned_by} · ` : "";
+
   return {
-    name: entry.display_name || entry.id,
-    description: `${entry.display_name || entry.id} (fetched from API)`,
+    name: label,
+    description: `${owner}${entry.id} (via ${sourceLabel})`,
     contextWindow: inferContextWindow(entry.id),
     recommended: false,
-    supportsThinking: inferSupportsThinking(entry.id),
-    tier,
-    deprecated: inferDeprecated(entry.id),
+    supportsThinking: isClaude ? inferSupportsThinking(entry.id) : false,
+    tier: isClaude ? classifyTier(entry.id) : "balanced",
+    deprecated: isClaude ? inferDeprecated(entry.id) : false,
   };
 }
 
@@ -104,7 +165,7 @@ function buildAliases(models: Record<string, ModelInfo>, apiModels: AnthropicMod
     // Find all API models in this family, sorted by created_at descending
     const familyModels = apiModels
       .filter(m => m.id.includes(family) && m.type === 'model')
-      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      .sort((a, b) => timestamp(b.created_at) - timestamp(a.created_at));
     
     if (familyModels.length > 0) {
       const latest = familyModels[0];
@@ -137,7 +198,7 @@ function buildAliases(models: Record<string, ModelInfo>, apiModels: AnthropicMod
  * 2. Fall back to the official Anthropic API (https://api.anthropic.com)
  * 3. Both endpoints must have ANTHROPIC_API_KEY set
  */
-async function fetchFromAPI(): Promise<AnthropicModelEntry[] | null> {
+async function fetchFromAPI(): Promise<Record<string, ModelInfo> | null> {
   const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
   if (!apiKey) {
     return null;
@@ -151,7 +212,7 @@ async function fetchFromAPI(): Promise<AnthropicModelEntry[] | null> {
 
   for (const baseUrl of urlsToTry) {
     try {
-      const allModels: AnthropicModelEntry[] = [];
+      const rawModels: RawModelEntry[] = [];
       let hasMore = true;
       let afterId: string | undefined;
 
@@ -180,9 +241,11 @@ async function fetchFromAPI(): Promise<AnthropicModelEntry[] | null> {
         }
 
         const data: AnthropicModelsResponse = await response.json();
-        allModels.push(...data.data);
+        rawModels.push(...(data.data ?? []));
 
-        hasMore = data.has_more;
+        // OpenAI-compatible gateways return the full list unpaginated and omit
+        // has_more entirely, so an absent flag must terminate the loop.
+        hasMore = data.has_more === true;
         if (hasMore && data.last_id) {
           afterId = data.last_id;
         } else {
@@ -190,10 +253,24 @@ async function fetchFromAPI(): Promise<AnthropicModelEntry[] | null> {
         }
       }
 
-      if (allModels.length > 0) {
-        console.log(`Model fetcher: Loaded ${allModels.length} models from ${baseUrl}`);
-        return allModels;
+      if (rawModels.length === 0) continue;
+
+      const isOfficial = isOfficialAnthropic(baseUrl);
+      const sourceLabel = isOfficial ? "Anthropic API" : new URL(baseUrl).host;
+      const entries = rawModels.map(normalizeEntry);
+      const models = buildModelsFromAPI(entries, isOfficial, sourceLabel);
+      const count = Object.keys(models).length;
+
+      if (count > 0) {
+        console.log(`Model fetcher: Loaded ${count} models from ${baseUrl}`);
+        return models;
       }
+
+      // Reached the endpoint but nothing survived filtering. Don't cache an
+      // empty catalog — fall through to the next source.
+      console.warn(
+        `Model fetcher: ${rawModels.length} entries from ${baseUrl} yielded no usable models — trying next source`,
+      );
     } catch (error) {
       console.error(`Failed to fetch models from ${baseUrl}:`, error instanceof Error ? error.message : String(error));
       // Try next URL if available
@@ -206,20 +283,31 @@ async function fetchFromAPI(): Promise<AnthropicModelEntry[] | null> {
 
 /**
  * Build the models record from API data.
+ *
+ * The official Anthropic API only ever serves Claude models, so anything else
+ * there is junk and gets dropped. A custom ANTHROPIC_BASE_URL is an arbitrary
+ * gateway that may serve any model (Qwen, Ministral, Llama, ...), so its
+ * entries are kept as-is — filtering them to `claude-` would discard the whole
+ * catalog and leave the picker empty.
  */
-function buildModelsFromAPI(apiModels: AnthropicModelEntry[]): Record<string, ModelInfo> {
+function buildModelsFromAPI(
+  apiModels: AnthropicModelEntry[],
+  isOfficial: boolean,
+  sourceLabel: string,
+): Record<string, ModelInfo> {
   const models: Record<string, ModelInfo> = {};
 
-  // Filter to only Claude models (skip any non-Claude entries)
-  const claudeModels = apiModels.filter(m => m.id.startsWith("claude-"));
+  const usable = isOfficial
+    ? apiModels.filter(m => m.id.startsWith("claude-"))
+    : apiModels.filter(m => typeof m.id === "string" && m.id.length > 0);
 
-  // Add each model
-  for (const entry of claudeModels) {
-    models[entry.id] = toModelInfo(entry);
+  for (const entry of usable) {
+    models[entry.id] = toModelInfo(entry, sourceLabel);
   }
 
-  // Build convenience aliases (opus, sonnet, haiku)
-  buildAliases(models, claudeModels);
+  // Convenience aliases (opus, sonnet, haiku) — only meaningful if the source
+  // actually serves those families; a no-op otherwise.
+  buildAliases(models, usable);
 
   return models;
 }
@@ -400,12 +488,12 @@ export async function fetchModels(): Promise<Record<string, ModelInfo> | null> {
     return cachedModels;
   }
 
-  // Strategy 1: Use Anthropic API (if API key is available)
+  // Strategy 1: Use the models API (custom base URL first, then Anthropic).
+  // fetchFromAPI only returns a non-empty record, so this never caches {}.
   const apiModels = await fetchFromAPI();
-  if (apiModels && apiModels.length > 0) {
-    cachedModels = buildModelsFromAPI(apiModels);
+  if (apiModels) {
+    cachedModels = apiModels;
     lastFetchTime = now;
-    console.log(`Model fetcher: Loaded ${Object.keys(cachedModels).length} models from Anthropic API`);
     return cachedModels;
   }
 

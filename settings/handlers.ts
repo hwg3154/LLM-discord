@@ -35,10 +35,16 @@ export function createAdvancedSettingsHandlers(deps: SettingsHandlerDeps) {
 
           case 'set-model':
             if (!value) {
-              const modelList = Object.entries(CLAUDE_MODELS).map(([key, model]) => 
-                `• \`${key}\` - ${model.name}`
-              ).join('\n');
-              
+              // Discord caps embed field values at 1024 chars, and a custom
+              // endpoint can serve hundreds of models — show a prefix only.
+              const allModels = Object.entries(CLAUDE_MODELS);
+              const shown = allModels.slice(0, 15);
+              const remaining = allModels.length - shown.length;
+              const modelList = shown
+                .map(([key, model]) => `• \`${key}\` - ${model.name}`)
+                .join('\n')
+                + (remaining > 0 ? `\n…and ${remaining} more — see \`/claude-models\`` : '');
+
               await ctx.reply({
                 embeds: [{
                   color: 0xff6600,

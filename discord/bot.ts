@@ -20,6 +20,7 @@ import { sanitizeChannelName } from "./utils.ts";
 import { handlePaginationInteraction } from "./pagination.ts";
 import { checkCommandPermission } from "../core/rbac.ts";
 import { SETTINGS_ACTIONS, SETTINGS_VALUES } from "../settings/unified-settings.ts";
+import { CLAUDE_MODELS } from "../claude/enhanced-client.ts";
 import { BOT_VERSION } from "../util/version-check.ts";
 import type {
   BotConfig,
@@ -304,21 +305,36 @@ export async function createDiscordBot(
     }
   }
 
-  // Autocomplete handler for /settings action & value fields
-  async function handleAutocomplete(interaction: AutocompleteInteraction) {
-    if (interaction.commandName !== 'settings') return;
+  // Model choices are read live from CLAUDE_MODELS rather than a module-level
+  // list: the catalog is fetched asynchronously at startup, so anything built
+  // at import time would be frozen to the hardcoded defaults.
+  function modelChoices(): { name: string; value: string }[] {
+    return Object.entries(CLAUDE_MODELS).map(([key, model]) => ({
+      name: `${model.name}${model.recommended ? ' ⭐' : ''}`.slice(0, 100),
+      value: key,
+    }));
+  }
 
+  // Autocomplete handler for /settings action & value fields, plus the
+  // model option on the Claude commands.
+  async function handleAutocomplete(interaction: AutocompleteInteraction) {
     const focused = interaction.options.getFocused(true);
-    const category = interaction.options.getString('category') ?? '';
-    const action = interaction.options.getString('action') ?? '';
     const typed = focused.value.toLowerCase();
 
     let choices: { name: string; value: string }[] = [];
 
-    if (focused.name === 'action') {
-      choices = SETTINGS_ACTIONS[category] ?? [];
-    } else if (focused.name === 'value') {
-      choices = SETTINGS_VALUES[action] ?? [];
+    if (interaction.commandName !== 'settings') {
+      if (focused.name !== 'model') return;
+      choices = modelChoices();
+    } else {
+      const category = interaction.options.getString('category') ?? '';
+      const action = interaction.options.getString('action') ?? '';
+
+      if (focused.name === 'action') {
+        choices = SETTINGS_ACTIONS[category] ?? [];
+      } else if (focused.name === 'value') {
+        choices = action === 'set-model' ? modelChoices() : (SETTINGS_VALUES[action] ?? []);
+      }
     }
 
     // Filter by what the user has typed so far

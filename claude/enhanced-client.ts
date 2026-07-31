@@ -477,8 +477,14 @@ export function isValidModel(modelInput: string): boolean {
  */
 export function initModels(): void {
   startModelRefresh((newModels) => {
+    // Never replace the catalog with an empty one — that would leave every
+    // model picker blank with no way to recover until restart.
+    if (Object.keys(newModels).length === 0) {
+      console.warn("[Models] Fetch returned no models — keeping existing catalog");
+      return;
+    }
     CLAUDE_MODELS = newModels;
-    console.log(`[Models] Dynamically updated to ${Object.keys(CLAUDE_MODELS).length} models from Anthropic API`);
+    console.log(`[Models] Dynamically updated to ${Object.keys(CLAUDE_MODELS).length} models`);
   });
 }
 
@@ -488,7 +494,7 @@ export function initModels(): void {
  */
 export async function refreshModels(): Promise<Record<string, ModelInfo>> {
   const fetched = await fetchModels();
-  if (fetched) {
+  if (fetched && Object.keys(fetched).length > 0) {
     CLAUDE_MODELS = fetched;
   }
   return CLAUDE_MODELS;

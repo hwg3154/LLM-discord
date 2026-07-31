@@ -794,9 +794,15 @@ async function handleClaudeSettings(ctx: any, settings: UnifiedBotSettings, upda
   switch (action) {
     case 'set-model':
       if (!value) {
-        const availableModels = Object.entries(CLAUDE_MODELS).map(([key, model]) => 
-          `• **${key}**: ${model.name}`
-        ).join('\n');
+        // Discord caps embed field values at 1024 chars, and a custom
+        // endpoint can serve hundreds of models — show a prefix only.
+        const allModels = Object.entries(CLAUDE_MODELS);
+        const shownModels = allModels.slice(0, 15);
+        const omittedCount = allModels.length - shownModels.length;
+        const availableModels = shownModels
+          .map(([key, model]) => `• **${key}**: ${model.name}`)
+          .join('\n')
+          + (omittedCount > 0 ? `\n…and ${omittedCount} more — see \`/claude-models\`` : '');
         await ctx.editReply({
           embeds: [{
             color: 0xff6600,
